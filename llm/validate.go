@@ -39,6 +39,11 @@ func validateAPIKey(fl validator.FieldLevel) bool {
 	provider := parent.FieldByName("Provider").String()
 
 	// For Ollama, we don't require an API key
+// For vLLM, we don't require an API key (local model)
+if provider == "vllm" {
+return true
+}
+
 	if provider == "ollama" {
 		// For Ollama, check if the endpoint is accessible
 		endpoint := parent.FieldByName("OllamaEndpoint").String()

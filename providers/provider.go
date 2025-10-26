@@ -184,6 +184,7 @@ func NewProviderRegistry(providerNames ...string) *ProviderRegistry {
 		"cohere":        NewCohereProvider,
 		"deepseek":      NewDeepSeekProvider,
 		"google-openai": NewGoogleProvider,
+"vllm":          NewVLLMProvider,
 		// Add other providers here as they are implemented
 	}
 
@@ -255,6 +256,16 @@ func NewProviderRegistry(providerNames ...string) *ProviderRegistry {
 			Endpoint:          "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
 			AuthHeader:        "Authorization",
 			AuthPrefix:        "Bearer ",
+			RequiredHeaders:   map[string]string{"Content-Type": "application/json"},
+			SupportsSchema:    true,
+			SupportsStreaming: true,
+		},
+		"vllm": {
+			Name:              "vllm",
+			Type:              TypeOpenAI,
+			Endpoint:          "",
+			AuthHeader:        "",
+			AuthPrefix:        "",
 			RequiredHeaders:   map[string]string{"Content-Type": "application/json"},
 			SupportsSchema:    true,
 			SupportsStreaming: true,

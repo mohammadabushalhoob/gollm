@@ -243,6 +243,26 @@ func (l *LLMImpl) attemptGenerate(ctx context.Context, prompt *Prompt) (string, 
 	structuredMessages, hasStructuredMessages := l.Options["structured_messages"]
 	l.optionsMutex.RUnlock()
 
+	// If provider offers a native SDK path, prefer it to avoid HTTP formatting pitfalls
+	if native, ok := l.Provider.(interface{
+		GenerateNative(ctx context.Context, prompt string, options map[string]interface{}, structuredMessages []types.MemoryMessage) (string, error)
+	}); ok {
+		var msgs []types.MemoryMessage
+		if hasStructuredMessages {
+			if m, ok := structuredMessages.([]types.MemoryMessage); ok {
+				msgs = m
+			} else {
+				l.logger.Warn("Invalid structured_messages format for native path", "type", fmt.Sprintf("%T", structuredMessages))
+			}
+		}
+		l.logger.Debug("Using native provider SDK path", "provider", l.Provider.Name(), "has_messages", len(msgs) > 0)
+		res, err := native.GenerateNative(ctx, prompt.String(), options, msgs)
+		if err != nil {
+			return "", NewLLMError(ErrorTypeAPI, "native provider error", err)
+		}
+		return res, nil
+	}
+
 	// Check if we have structured messages
 	if hasStructuredMessages {
 		// Use the structured messages API if the provider supports it

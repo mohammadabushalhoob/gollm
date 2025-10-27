@@ -5,6 +5,7 @@
 package providers
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -82,6 +83,17 @@ type Provider interface {
 	// ParseStreamResponse processes a single chunk from a streaming response.
 	// It returns the token text and any error encountered.
 	ParseStreamResponse(chunk []byte) (string, error)
+}
+// NativeChatProvider is an optional extension interface for providers that
+// prefer to call their official SDKs directly instead of going through the
+// generic HTTP request/response path. When an implementation satisfies this
+// interface, the LLM client will delegate chat generation to it.
+type NativeChatProvider interface {
+    // GenerateNative performs a chat generation using the provider's SDK.
+    // - prompt: the current user prompt (may be empty if messages are provided)
+    // - options: provider-specific options (temperature, max_tokens, ...)
+    // - structuredMessages: optional conversation history in chronological order
+    GenerateNative(ctx context.Context, prompt string, options map[string]interface{}, structuredMessages []types.MemoryMessage) (string, error)
 }
 
 // ProviderType represents the general type of LLM API

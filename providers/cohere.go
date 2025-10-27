@@ -1,9 +1,14 @@
 package providers
 
 import (
+"context"
 "encoding/json"
 "fmt"
 "strings"
+
+cohere "github.com/cohere-ai/cohere-go/v2"
+coherev2 "github.com/cohere-ai/cohere-go/v2/v2"
+chopt "github.com/cohere-ai/cohere-go/v2/option"
 
 "github.com/teilomillet/gollm/config"
 "github.com/teilomillet/gollm/types"
@@ -20,6 +25,7 @@ model        string            // Model identifier (e.g., "command-r-plus-08-202
 extraHeaders map[string]string // Additional HTTP headers
 options      map[string]any    // Model-specific options
 logger       utils.Logger      // Logger instance
+	sdk          *coherev2.Client   // Cohere v2 SDK client
 }
 
 // NewCohereProvider creates a new Cohere provider instance.
@@ -43,6 +49,11 @@ func NewCohereProviderWithURL(apiKey, model, baseURL string, extraHeaders map[st
 		extraHeaders = make(map[string]string)
 	}
 
+	opts := []chopt.RequestOption{chopt.WithToken(apiKey)}
+	if baseURL != "" {
+		opts = append(opts, chopt.WithBaseURL(baseURL))
+	}
+	sdk := coherev2.NewClient(opts...)
 	return &CohereProvider{
 		apiKey:       apiKey,
 		baseURL:      baseURL,
@@ -50,6 +61,7 @@ func NewCohereProviderWithURL(apiKey, model, baseURL string, extraHeaders map[st
 		extraHeaders: extraHeaders,
 		options:      make(map[string]any),
 		logger:       utils.NewLogger(utils.LogLevelInfo),
+		sdk:          sdk,
 	}
 }
 
@@ -398,4 +410,110 @@ p.logger.Debug("Using Cohere v2 messages format",
 	p.logger.Info("Cohere API Headers: %v", p.Headers())
 	
 	return json.Marshal(request)
+}
+
+
+// GenerateNative implements providers.NativeChatProvider using Cohere Go SDK
+func (p *CohereProvider) GenerateNative(ctx context.Context, prompt string, options map[string]interface{}, structuredMessages []types.MemoryMessage) (string, error) {
+    if p.sdk == nil {
+        // Initialize lazily if needed
+        opts := []chopt.RequestOption{chopt.WithToken(p.apiKey)}
+        if p.baseURL != "" { opts = append(opts, chopt.WithBaseURL(p.baseURL)) }
+        p.sdk = coherev2.NewClient(opts...)
+    }
+
+    // Build messages
+    var msgs []*cohere.ChatMessageV2
+
+    // Optional system prompt
+    if sp, ok := options["system_prompt"].(string); ok && sp != "" {
+        msgs = append(msgs, &cohere.ChatMessageV2{System: &cohere.SystemMessageV2{Content: &cohere.SystemMessageV2Content{String: sp}}})
+    }
+
+    // Structured history
+    for _, m := range structuredMessages {
+        switch strings.ToLower(m.Role) {
+        case "user":
+            msgs = append(msgs, &cohere.ChatMessageV2{User: &cohere.UserMessageV2{Content: &cohere.UserMessageV2Content{String: m.Content}}})
+        case "assistant":
+            msgs = append(msgs, &cohere.ChatMessageV2{Assistant: &cohere.AssistantMessage{Content: &cohere.AssistantMessageV2Content{String: m.Content}}})
+        case "system":
+            // If system already added at head, keep chronological order and include here too
+            msgs = append(msgs, &cohere.ChatMessageV2{System: &cohere.SystemMessageV2{Content: &cohere.SystemMessageV2Content{String: m.Content}}})
+        }
+    }
+
+    // If no user message present and prompt provided, add it
+    if prompt != "" {
+        msgs = append(msgs, &cohere.ChatMessageV2{User: &cohere.UserMessageV2{Content: &cohere.UserMessageV2Content{String: prompt}}})
+    }
+
+    // Map options
+    req := &cohere.V2ChatRequest{ Model: p.model, Messages: msgs }
+
+    // helper to set float64 pointer
+    setF := func(dst **float64, v interface{}) {
+        switch t := v.(type) {
+        case float64:
+            vv := t; *dst = &vv
+        case float32:
+            vv := float64(t); *dst = &vv
+        case int:
+            vv := float64(t); *dst = &vv
+        }
+    }
+    _ = setF // avoid unused when no float options passed
+
+    if v, ok := options["temperature"]; ok { var ptr *float64; setF(&ptr, v); if ptr != nil { req.Temperature = ptr } }
+    if v, ok := options["frequency_penalty"]; ok { var ptr *float64; setF(&ptr, v); if ptr != nil { req.FrequencyPenalty = ptr } }
+    if v, ok := options["presence_penalty"]; ok { var ptr *float64; setF(&ptr, v); if ptr != nil { req.PresencePenalty = ptr } }
+
+    if v, ok := options["max_tokens"]; ok {
+        switch t := v.(type) {
+        case int:
+            req.MaxTokens = &t
+        case float64:
+            ti := int(t); req.MaxTokens = &ti
+        }
+    }
+    if v, ok := options["k"]; ok {
+        switch t := v.(type) {
+        case int:
+            req.K = &t
+        case float64:
+            ti := int(t); req.K = &ti
+        }
+    }
+    if v, ok := options["p"]; ok { var ptr *float64; setF(&ptr, v); if ptr != nil { req.P = ptr } }
+    if v, ok := options["seed"]; ok {
+        switch t := v.(type) {
+        case int:
+            req.Seed = &t
+        case float64:
+            ti := int(t); req.Seed = &ti
+        }
+    }
+
+    // Call SDK
+    resp, err := p.sdk.Chat(ctx, req)
+    if err != nil {
+        return "", fmt.Errorf("cohere SDK chat error: %w", err)
+    }
+
+    if resp == nil || resp.Message == nil || len(resp.Message.Content) == 0 {
+        return "", fmt.Errorf("cohere SDK: empty response content")
+    }
+
+    var sb strings.Builder
+    for _, it := range resp.Message.Content {
+        if it == nil || it.Text == nil { continue }
+        if it.Text.Text != "" {
+            if sb.Len() > 0 { sb.WriteString("") }
+            sb.WriteString(it.Text.Text)
+        }
+    }
+    if sb.Len() == 0 {
+        return "", fmt.Errorf("cohere SDK: no text content in message")
+    }
+    return sb.String(), nil
 }

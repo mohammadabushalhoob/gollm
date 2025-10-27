@@ -6,6 +6,7 @@ toolchain go1.24.1
 
 require (
 	github.com/caarlos0/env/v11 v11.3.1
+	github.com/cohere-ai/cohere-go/v2 v2.15.3
 	github.com/go-playground/validator/v10 v10.25.0
 	github.com/invopop/jsonschema v0.13.0
 	github.com/pkoukk/tiktoken-go v0.1.7
@@ -14,6 +15,8 @@ require (
 )
 
 require (
+	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
+	github.com/aws/smithy-go v1.20.3 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
